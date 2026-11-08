@@ -1,0 +1,142 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.side {
+  flex: 1 1 420px;
+  min-width: 0;
+  padding: 48px;
+  background: var(--teal-900);
+  color: var(--cream-50);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--teal-100);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--cream-50);
+}
+
+.sideCopy {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sideCopy h1 {
+  font-weight: 800;
+  font-size: clamp(30px, 5vw, 38px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--cream-50);
+}
+
+.sideCopy p {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--teal-100);
+}
+
+.sideMark {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--cream-50);
+  color: var(--teal-700);
+  display: grid;
+  place-items: center;
+}
+
+.sideBrand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--copper-300);
+}
+
+.sidePlace {
+  font-size: 13px;
+  color: var(--teal-300);
+}
+
+.main {
+  flex: 1 1 460px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+.panel {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heading h2 {
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.heading p,
+.help {
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.help a {
+  font-weight: 700;
+}
+
+.google {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.googleButton {
+  min-height: 44px;
+}
+
+.status {
+  font-size: 14px;
+  color: var(--teal-900);
+}
+
+.error {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--copper-100);
+  color: var(--copper-800);
+  font-size: 14px;
+  font-weight: 700;
+}

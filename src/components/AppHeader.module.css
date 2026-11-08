@@ -1,0 +1,81 @@
+.header {
+  background: var(--teal-900);
+  color: var(--cream-50);
+}
+
+.inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--cream-50);
+  color: var(--teal-700);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.brandText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.area {
+  font-size: 13px;
+  color: var(--teal-200);
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hello {
+  font-size: 14px;
+  color: var(--teal-100);
+}
+
+.logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--teal-300);
+  background: transparent;
+  color: var(--cream-50);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.logout:hover {
+  background: rgba(251, 246, 238, 0.12);
+}
