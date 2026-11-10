@@ -1,0 +1,731 @@
+# Checks, production build, container image, and release publication for the web site.
+#
+# Ported from the entrePatasETurnosAPI pipeline. The structure, the security rules, and the
+# deployment handoff are the same; only the stages changed (Maven tests -> lint, type check and
+# Vitest; native executable -> Next.js standalone build; UBI image -> Node image).
+#
+# The pipeline is split into one job per stage so each gets its own pass/fail box in the Actions UI.
+# One consequence of that split is deliberate and should not be "fixed":
+#
+#   ARTIFACTS CROSS JOB BOUNDARIES. Each job runs on a fresh machine, so the build output and the
+#   image travel as artifacts. Every hand-off is checksummed by the producer and re-verified by the
+#   consumer, because "the image contains the build this run produced" stops being structural the
+#   moment it stops being one job.
+#
+# Unlike the API, the tests run once: `next build` has no test phase, so the build job has nothing
+# to skip and nothing to re-run. (It does type-check again; that is harmless.)
+#
+# The image is built ONCE, in the `image` job, and exported as a tarball. `publish` loads that exact
+# tarball and applies both tags to it, so the two tags cannot disagree. Only `publish` ever receives
+# registry credentials; the build jobs have none.
+#
+# See specs/002-ci-docker-publish/ for the full contract this file implements.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Runs on `main` share one group and never cancel each other, so they publish one at a time and
+# `latest` is never written concurrently. When runs queue, GitHub keeps only the newest pending one,
+# so the last writer of `latest` is the newest commit. Pull-request runs supersede their own
+# earlier runs and no one else's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+  BUILD_ARTIFACT: site-standalone
+  IMAGE_ARTIFACT: container-image
+  LOCAL_IMAGE: local/entrepataseturnos-web
+
+jobs:
+
+  # ----------------------------------------------------------------------------------------------
+  gate:
+    name: Publication gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      # The single place publication is authorised. It reads only the event name and the ref --
+      # never a branch name, PR title, commit message, file content, or workflow input. Both arrive
+      # through `env` rather than `${{ }}` interpolation into the script, so a ref containing shell
+      # metacharacters is data, not code.
+      - name: Decide whether this run publishes
+        id: decide
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          publish=false
+          if [ "$REF" = "refs/heads/main" ] && { [ "$EVENT" = "push" ] || [ "$EVENT" = "workflow_dispatch" ]; }; then
+            publish=true
+            reason="published"
+          elif [ "$EVENT" = "pull_request" ]; then
+            reason="skipped (pull request)"
+          else
+            reason="skipped (ref is not main)"
+          fi
+          echo "publish=$publish  reason=$reason"
+          {
+            echo "publish=$publish"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+
+      # This job exists as its own box so a misconfigured repository fails here, in seconds, with
+      # its own red mark -- rather than after the build, or hidden inside a box labelled "Checks".
+      # Emptiness is all that is ever tested; no value is printed.
+      #
+      # NEXT_PUBLIC_GOOGLE_CLIENT_ID is checked with the publishing settings because it is embedded
+      # into the browser bundle at build time: an image built without the real value ships a sign-in
+      # button that cannot work, and no runtime setting can repair it.
+      - name: Check the publishing configuration
+        if: steps.decide.outputs.publish == 'true'
+        shell: bash
+        env:
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+          DEPLOY_REPOSITORY: ${{ vars.DEPLOY_REPOSITORY }}
+          DEPLOY_WORKFLOW: ${{ vars.DEPLOY_WORKFLOW }}
+          DEPLOY_DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${DOCKERHUB_IMAGE:-}" ]               || missing+=("repository variable DOCKERHUB_IMAGE")
+          [ -n "${DOCKERHUB_USERNAME:-}" ]            || missing+=("repository secret DOCKERHUB_USERNAME")
+          [ -n "${DOCKERHUB_TOKEN:-}" ]               || missing+=("repository secret DOCKERHUB_TOKEN")
+          [ -n "${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}" ]  || missing+=("repository variable NEXT_PUBLIC_GOOGLE_CLIENT_ID")
+          [ -n "${DEPLOY_REPOSITORY:-}" ]             || missing+=("repository variable DEPLOY_REPOSITORY")
+          [ -n "${DEPLOY_WORKFLOW:-}" ]               || missing+=("repository variable DEPLOY_WORKFLOW")
+          [ -n "${DEPLOY_DISPATCH_TOKEN:-}" ]         || missing+=("repository secret DEPLOY_DISPATCH_TOKEN")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::this run publishes but is missing: %s\n' "$(IFS='; '; echo "${missing[*]}")"
+            echo "Set them under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+
+  # ----------------------------------------------------------------------------------------------
+  checks:
+    name: Checks
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      verdict: ${{ steps.report.outputs.verdict }}
+    steps:
+      - name: Check out the source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The suite stubs every network call (the API and Google), so Node is the whole environment.
+      # `cache: npm` caches ~/.npm keyed on package-lock.json -- never node_modules/ or .next/,
+      # which could otherwise carry build output between revisions.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Separate steps in one box: a lint failure, a type error and a failing test are different
+      # problems, and the step name says which one this is without opening the log.
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run the test suite
+        run: npm test
+
+      # Counts come from the report the run actually produced, not from the step's exit code, so
+      # the summary cannot claim a pass the run did not demonstrate. Vitest writes one <testsuite>
+      # per file under a <testsuites> root; iter() also accepts a bare <testsuite> root.
+      - name: Report the test outcome
+        if: always()
+        id: report
+        shell: bash
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import os, xml.etree.ElementTree as ET
+          path = "reports/junit.xml"
+          if not os.path.exists(path):
+              print("verdict=not reached")
+          else:
+              run = fail = err = skip = 0
+              for s in ET.parse(path).getroot().iter("testsuite"):
+                  run  += int(s.get("tests", 0))
+                  fail += int(s.get("failures", 0))
+                  err  += int(s.get("errors", 0))
+                  skip += int(s.get("skipped", 0))
+              detail = f"{run} tests, {fail} failures, {err} errors"
+              if skip:
+                  detail += f", {skip} skipped"
+              print(f"verdict={'passed' if fail == 0 and err == 0 else 'FAILED'} ({detail})")
+          PY
+
+  # ----------------------------------------------------------------------------------------------
+  build:
+    name: Production build
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      summary: ${{ steps.verify.outputs.summary }}
+      sha256: ${{ steps.verify.outputs.sha256 }}
+    steps:
+      - name: Check out the source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # NEXT_PUBLIC_* values are inlined into the browser bundle here, at build time, so this is the
+      # one job that needs the Google client id. It is public (every browser receives it), hence a
+      # repository variable rather than a secret. Runs that do not publish -- pull requests,
+      # including ones from forks -- fall back to an obviously fake value; the gate refuses to
+      # publish without the real one.
+      - name: Build the site
+        env:
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID || 'ci-placeholder.apps.googleusercontent.com' }}
+        run: npm run build
+
+      # The standalone server does not copy static assets; without them every page renders unstyled
+      # and without JavaScript. Then: a server to run, the static files it serves, the traced
+      # dependencies it imports -- and no .env file that would bake local secrets into the image.
+      # Packed as one tarball so file modes survive the trip and there is a single checksum, which
+      # is this job's half of the hand-off: the `image` job recomputes it and refuses anything else.
+      - name: Assemble and verify the build output
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=.next/standalone
+
+          [ -d "$out" ] || { echo "::error::$out is missing; is output: \"standalone\" still set in next.config.ts?"; exit 1; }
+          mkdir -p "$out/.next"
+          cp -R .next/static "$out/.next/static"
+          if [ -d public ]; then cp -R public "$out/public"; fi
+
+          [ -f "$out/server.js" ]                 || { echo "::error::$out/server.js is missing"; exit 1; }
+          [ -n "$(ls -A "$out/.next/static")" ]   || { echo "::error::$out/.next/static is empty"; exit 1; }
+          [ -d "$out/node_modules/next" ]         || { echo "::error::$out/node_modules/next is missing"; exit 1; }
+          envfiles="$(find "$out" -name '.env*' -not -path '*/node_modules/*')"
+          if [ -n "$envfiles" ]; then
+            echo "::error::the build output contains environment files, which must never reach the image: ${envfiles//$'\n'/, }"
+            exit 1
+          fi
+
+          tar -C "$out" -czf site-standalone.tar.gz .
+          tar -tzf site-standalone.tar.gz | grep -qx './server.js' \
+            || { echo "::error::site-standalone.tar.gz has no ./server.js at its root"; exit 1; }
+
+          ls -lh site-standalone.tar.gz
+          {
+            echo "summary=built — site-standalone.tar.gz, $(du -h site-standalone.tar.gz | cut -f1)"
+            echo "sha256=$(sha256sum site-standalone.tar.gz | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Hand the build output to the image job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.BUILD_ARTIFACT }}
+          path: site-standalone.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  # ----------------------------------------------------------------------------------------------
+  image:
+    name: Container image
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha256: ${{ steps.export.outputs.sha256 }}
+    steps:
+      # Only the Dockerfile and .dockerignore are needed from the tree; the build output arrives as
+      # an artifact. Checking out the same revision keeps the two in step.
+      - name: Check out the source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Collect the build output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.BUILD_ARTIFACT }}
+          path: .
+
+      # An artifact is scoped to this run, so a foreign one cannot arrive by accident -- but "cannot
+      # by accident" is not the same as "cannot", and the claim this pipeline makes is that the
+      # published image contains the build THIS run produced. Re-derive it rather than assume it.
+      - name: Verify the build output is the one this run built
+        shell: bash
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          [ -f site-standalone.tar.gz ] || { echo "::error::site-standalone.tar.gz did not arrive"; exit 1; }
+          actual="$(sha256sum site-standalone.tar.gz | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::build output checksum mismatch — expected $EXPECTED, got $actual"
+            exit 1
+          fi
+          echo "checksum matches the build job: $actual"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # Built once, here, and exported rather than pushed. This job holds no credentials: the tags
+      # that matter are applied to this exact tarball in `publish`, so both of them necessarily
+      # refer to the same image, with no second build that could differ.
+      - name: Build the container image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.LOCAL_IMAGE }}:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/image.tar
+
+      # The web equivalent of "the executable links against the runtime's libc": start the image
+      # exactly as a deployment would and ask it three questions before anyone can publish it.
+      # The API address is deliberately unreachable -- the landing page is static and must not need
+      # it, and the signed-out redirect is decided before the API is ever asked.
+      - name: Smoke-test the image
+        shell: bash
+        env:
+          IMAGE: ${{ env.LOCAL_IMAGE }}:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker load -i /tmp/image.tar
+          docker run -d --name smoke -p 3000:3000 -e API_BASE_URL=http://127.0.0.1:9 "$IMAGE" >/dev/null
+          trap 'echo "--- container log ---"; docker logs smoke 2>&1 || true; docker rm -f smoke >/dev/null 2>&1 || true' EXIT
+
+          up=false
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/; then up=true; break; fi
+            sleep 1
+          done
+          [ "$up" = true ] || { echo "::error::the image did not serve / with 200 within 30 seconds"; exit 1; }
+          echo "/ answers 200"
+
+          answer="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1:3000/admin)"
+          case "$answer" in
+            "307 "*"/entrar?de=%2Fadmin") echo "/admin redirects a signed-out visitor: $answer" ;;
+            *) echo "::error::/admin must redirect a signed-out visitor to /entrar?de=%2Fadmin, got: $answer"; exit 1 ;;
+          esac
+
+          uid="$(docker exec smoke id -u)"
+          [ "$uid" != "0" ] || { echo "::error::the site runs as root inside the image"; exit 1; }
+          echo "runs as uid $uid"
+
+      - name: Checksum the image
+        id: export
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh /tmp/image.tar
+          echo "sha256=$(sha256sum /tmp/image.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # Uploaded on every run, publishing or not: on a pull request it expires unused, which is what
+      # "built, then discarded" means in practice, and it lets a reviewer load the exact image the
+      # branch produces without building it themselves.
+      - name: Hand the image to the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.IMAGE_ARTIFACT }}
+          path: /tmp/image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # ----------------------------------------------------------------------------------------------
+  publish:
+    name: Docker Hub
+    needs: [gate, image]
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      tags: ${{ steps.push.outputs.tags }}
+      image: ${{ steps.push.outputs.image }}
+      revision_tag: ${{ steps.push.outputs.revision_tag }}
+    steps:
+      - name: Collect the container image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.IMAGE_ARTIFACT }}
+          path: /tmp
+
+      - name: Verify the image is the one this run built
+        shell: bash
+        env:
+          EXPECTED: ${{ needs.image.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          actual="$(sha256sum /tmp/image.tar | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::image checksum mismatch — expected $EXPECTED, got $actual"
+            exit 1
+          fi
+          echo "checksum matches the image job: $actual"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Tagging a loaded image is a rename, not a rebuild: both tags name one image id, so they
+      # cannot drift apart. The digest is read back from the registry after the push rather than
+      # predicted.
+      #
+      # A `sha-` tag is IMMUTABLE. Builds are not byte-reproducible, so re-running this workflow for
+      # a commit that is already published would push a different image under the same name and,
+      # worse, make that old commit the most recently published tag, which is what a deployment's
+      # catch-up treats as newest. So an existing revision tag is never pushed again: the run reuses
+      # the published digest, leaves `latest` where it is, and the deployment decides whether that
+      # version may run.
+      - name: Tag and push
+        id: push
+        shell: bash
+        env:
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          loaded="$(docker load -i /tmp/image.tar | sed -n 's/^Loaded image: //p' | head -1)"
+          [ -n "$loaded" ] || { echo "::error::nothing was loaded from the image tarball"; exit 1; }
+          echo "loaded $loaded"
+
+          revision="${DOCKERHUB_IMAGE}:sha-${SHA}"
+          moving="${DOCKERHUB_IMAGE}:latest"
+
+          if docker manifest inspect "$revision" >/dev/null 2>&1; then
+            digest="$(docker buildx imagetools inspect "$revision" --format '{{.Manifest.Digest}}')"
+            printf '%s' "$digest" | grep -qE '^sha256:[0-9a-f]{64}$' \
+              || { echo "::error::could not read the digest of the already-published ${revision}"; exit 1; }
+            echo "::notice::${revision} is already published (${digest}); not pushing it again, and not moving latest"
+            tags="sha-${SHA} (already published)"
+          else
+            docker tag "$loaded" "$revision"
+            docker tag "$loaded" "$moving"
+            docker push "$revision"
+            docker push "$moving"
+            digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$revision" | cut -d'@' -f2)"
+            tags="sha-${SHA}, latest"
+          fi
+
+          # `tags` is a display string for the run summary. `image` and `revision_tag` are the
+          # machine-readable halves the deploy job consumes: it must not parse `tags`, because that
+          # would make a human-facing format load-bearing and let a summary reformat break
+          # deployments silently.
+          {
+            echo "digest=$digest"
+            echo "tags=${tags}"
+            echo "image=${DOCKERHUB_IMAGE}"
+            echo "revision_tag=sha-${SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+  # ----------------------------------------------------------------------------------------------
+  deploy:
+    name: Deployment handoff
+    # `needs: publish` alone would already skip this job on a non-publishing run. The `if` is
+    # deliberately redundant with it: it makes the REUSE of the gate's decision visible in the file,
+    # so a future edit cannot leave publication and deployment disagreeing about what a release is.
+    # It reads `needs.gate.outputs.publish` and nothing else -- never the event name, the ref, a
+    # branch name, a commit message, a PR title, or file content.
+    needs: [gate, publish]
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # This job holds the one credential that can act on another repository, and it needs nothing at
+    # all from this one -- no checkout, no GITHUB_TOKEN. Declaring no permissions denies the
+    # workflow's default `contents: read`, so the job's total authority is exactly one secret.
+    permissions: {}
+    outputs:
+      requested: ${{ steps.dispatch.outputs.requested }}
+      target: ${{ steps.dispatch.outputs.target }}
+      handed_off: ${{ steps.dispatch.outputs.handed_off }}
+    steps:
+      # Hands the published image to the deployment repository by creating a workflow dispatch
+      # event there. `workflow_dispatch` rather than `repository_dispatch` because the credential
+      # then needs only Actions:write on that one repository -- `repository_dispatch` requires
+      # Contents:write, which would also let this token rewrite the deployment repository's source,
+      # including its own deployment workflow. Two further consequences we rely on: a renamed or
+      # deleted target returns 404 instead of firing into silence, and the target's declared inputs
+      # are checked by GitHub on every dispatch.
+      #
+      # The target must be the SITE's deployment workflow, never the API's cd.yaml. See
+      # specs/002-ci-docker-publish/contracts/deployment-handoff-contract.md.
+      - name: Request a deployment
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          DEPLOY_REPOSITORY: ${{ vars.DEPLOY_REPOSITORY }}
+          DEPLOY_WORKFLOW: ${{ vars.DEPLOY_WORKFLOW }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          TAG: ${{ needs.publish.outputs.revision_tag }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          REVISION: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # NEVER add `set -x` to this step. The token is in the environment, and tracing would put
+          # it one expansion away from a public log. For the same reason nothing below ever prints
+          # the response: a 401 body can echo request context back.
+
+          # Every value is passed through `env` and interpolated by jq, never concatenated into a
+          # string or into a shell command -- so a tag containing a quote or a shell metacharacter
+          # is data. The API requires each input be a string.
+          body="$(jq -n \
+            --arg image    "$IMAGE" \
+            --arg tag      "$TAG" \
+            --arg digest   "$DIGEST" \
+            --arg revision "$REVISION" \
+            --arg run_url  "$RUN_URL" \
+            '{ref: "main", inputs: {image: $image, tag: $tag, digest: $digest,
+                                    revision: $revision, run_url: $run_url}}')"
+
+          # Keep the deployment workflow's schedule alive: GitHub disables scheduled workflows after
+          # 60 days without activity in THAT repository. Enabling is idempotent and needs the same
+          # Actions:write this token already holds; a failure here is a warning, never a reason not
+          # to dispatch. Only the target itself -- the web deployment has no watchdog, and
+          # re-enabling a workflow that does not exist would warn on every run.
+          gh api --method PUT "repos/${DEPLOY_REPOSITORY}/actions/workflows/${DEPLOY_WORKFLOW}/enable" >/dev/null 2>&1 \
+            || echo "::warning::could not re-enable ${DEPLOY_WORKFLOW} in ${DEPLOY_REPOSITORY}"
+
+          endpoint="repos/${DEPLOY_REPOSITORY}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches"
+          echo "dispatching to ${endpoint} — ${IMAGE}:${TAG}"
+
+          # `gh` ships with the runner, so this costs no new third-party action next to a
+          # deployment credential, and it reads the token from GH_TOKEN rather than a command line.
+          attempt=1
+          max_attempts=3
+          status=""
+          errors="$(mktemp)"
+
+          while :; do
+            set +e
+            # stdout and stderr are kept APART, deliberately. `gh` writes the status line to stdout
+            # but is free to write notices and warnings to stderr, and merging the two would let one
+            # stray warning arrive ahead of the status line. A 204 misread as "no status" would be
+            # retried -- dispatching the deployment two more times and then failing the run.
+            response="$(printf '%s' "$body" | gh api --method POST -i --input - "$endpoint" 2>"$errors")"
+            set -e
+
+            # `gh api -i` prints the status line for a success and for an HTTP error alike; a
+            # transport failure prints neither, which is what "000" records. Matched anywhere in the
+            # output rather than only on line 1, for the same reason. Both streams are parsed and
+            # then discarded -- neither is ever echoed, because a 401 body can carry request context.
+            status="$(printf '%s\n' "$response" | sed -n 's#^HTTP/[0-9.]* \([0-9][0-9][0-9]\).*#\1#p' | head -1)"
+            if [ -z "$status" ]; then
+              status="$(sed -n 's/.*(HTTP \([0-9][0-9][0-9]\)).*/\1/p' "$errors" | head -1)"
+            fi
+            [ -n "$status" ] || status="000"
+
+            # Only a transient failure is retried. An expired token will not become valid in five
+            # seconds, and a missing workflow will not appear, so 401/403/404/422 fail immediately
+            # rather than spending the budget proving it.
+            case "$status" in
+              204)
+                break
+                ;;
+              000|429|5??)
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "::error::deployment dispatch failed after ${attempt} attempts (last status ${status}). GitHub or the network is unavailable; the image is published and the deployment can be started by hand from ${DEPLOY_REPOSITORY} → Actions → ${DEPLOY_WORKFLOW} → Run workflow."
+                  exit 1
+                fi
+                delay=5
+                [ "$attempt" -eq 2 ] && delay=15
+                echo "transient failure (status ${status}), attempt ${attempt} of ${max_attempts}; retrying in ${delay}s"
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                ;;
+              *)
+                break
+                ;;
+            esac
+          done
+
+          # One message per cause. An operator must be able to tell an expired credential from a
+          # renamed target without opening the other repository.
+          case "$status" in
+            204)
+              echo "dispatched (attempt ${attempt} of ${max_attempts})"
+              ;;
+            401)
+              echo "::error::deployment dispatch rejected: the credential in repository secret DEPLOY_DISPATCH_TOKEN is invalid, revoked, or EXPIRED. Generate a new fine-grained token and update the secret; nothing in this repository needs to change."
+              exit 1
+              ;;
+            403)
+              echo "::error::deployment dispatch forbidden: repository secret DEPLOY_DISPATCH_TOKEN is valid but lacks the required access. It needs repository permission 'Actions: Read and write' on ${DEPLOY_REPOSITORY}, and the organisation must have granted it access."
+              exit 1
+              ;;
+            404)
+              echo "::error::deployment target not found: no workflow '${DEPLOY_WORKFLOW}' in '${DEPLOY_REPOSITORY}'. Check repository variables DEPLOY_REPOSITORY and DEPLOY_WORKFLOW, and that the workflow file exists ON THAT REPOSITORY'S DEFAULT BRANCH. Note that a token which cannot see a private repository also presents as 404 — GitHub does not distinguish the two."
+              exit 1
+              ;;
+            422)
+              echo "::error::deployment dispatch rejected by the target's declared inputs. The workflow '${DEPLOY_WORKFLOW}' must declare all five of: image, tag, digest, revision, run_url. See specs/002-ci-docker-publish/contracts/deployment-handoff-contract.md section H3."
+              exit 1
+              ;;
+            *)
+              echo "::error::deployment dispatch returned an unexpected status ${status}."
+              exit 1
+              ;;
+          esac
+
+          # `requested` is written only on 204. workflow_dispatch returns no body, so the status is
+          # the entire signal, and the summary must never be able to claim a deployment that the
+          # API did not accept.
+          {
+            echo "requested=true"
+            echo "target=${DEPLOY_REPOSITORY} / ${DEPLOY_WORKFLOW}"
+            echo "handed_off=${IMAGE}:${TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+  # ----------------------------------------------------------------------------------------------
+  summary:
+    name: Summary
+    needs: [gate, checks, build, image, publish, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # One table for the whole run. Stage outcomes come from what each job measured -- test counts
+      # parsed from the JUnit report, the build archive's own name and size -- rather than only from
+      # job results, and a stage that never ran says so instead of claiming to have passed.
+      - name: Write the run summary
+        shell: bash
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          CHECKS_VERDICT: ${{ needs.checks.outputs.verdict }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_SUMMARY: ${{ needs.build.outputs.summary }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          DEPLOY_HANDED_OFF: ${{ needs.deploy.outputs.handed_off }}
+          DEPLOY_REPOSITORY: ${{ vars.DEPLOY_REPOSITORY }}
+          DEPLOY_WORKFLOW: ${{ vars.DEPLOY_WORKFLOW }}
+          SERVER_URL: ${{ github.server_url }}
+          GATE_RESULT: ${{ needs.gate.result }}
+          GATE_PUBLISH: ${{ needs.gate.outputs.publish }}
+          PUBLICATION_REASON: ${{ needs.gate.outputs.reason }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          IMAGE_TAGS: ${{ needs.publish.outputs.tags }}
+          IMAGE_DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os
+
+          def env(name):
+              return os.environ.get(name, "")
+
+          def stage(result, detail_on_success, failed="FAILED"):
+              if result == "success":
+                  return detail_on_success or "passed"
+              if result == "failure":
+                  return failed
+              if result == "cancelled":
+                  return "cancelled"
+              return "not reached"
+
+          # The counts the checks job measured describe the outcome better than the job's result
+          # does, and they are just as true when the suite failed -- "FAILED (17 tests, 1 failures)"
+          # says what "FAILED" alone does not. Fall back to the result only when no counts exist,
+          # e.g. when lint or the type check failed before the tests ran.
+          checks = env("CHECKS_VERDICT") or stage(env("CHECKS_RESULT"), "passed")
+          if env("CHECKS_VERDICT") == "not reached" and env("CHECKS_RESULT") == "failure":
+              checks = "FAILED (before the tests ran: lint, type check, or install)"
+          build = stage(env("BUILD_RESULT"), env("BUILD_SUMMARY") or "built")
+          image = stage(env("IMAGE_RESULT"), "built")
+
+          published = env("PUBLISH_RESULT") == "success"
+          if published:
+              publication = "published"
+          elif env("PUBLISH_RESULT") == "failure":
+              publication = "FAILED"
+          elif env("GATE_RESULT") == "failure":
+              publication = "FAILED (publishing configuration)"
+          elif env("GATE_PUBLISH") == "false":
+              # The gate declined: this run was never going to publish, and says why.
+              publication = env("PUBLICATION_REASON") or "not published"
+          else:
+              # The gate said yes but the job never ran, because a stage before it failed. Reporting
+              # the gate's "published" here would be the summary asserting something that did not
+              # happen -- the one thing it must never do.
+              publication = "not reached"
+
+          # Same rule, one stage further along. "requested" is printed ONLY when the deploy job
+          # succeeded in this run -- never because the gate intended to publish. A deployment that
+          # was not asked for is the one thing this row must never claim.
+          deploy_result = env("DEPLOY_RESULT")
+          requested = deploy_result == "success"
+          if requested:
+              deployment = "requested"
+          elif deploy_result == "failure":
+              deployment = "FAILED"
+          elif deploy_result == "cancelled":
+              deployment = "cancelled"
+          elif env("GATE_PUBLISH") == "false":
+              # The gate declined, so nothing was ever going to be deployed. Carry its own reason
+              # across -- "skipped (pull request)" reads as "not requested (pull request)" here,
+              # because from the deployment's point of view it was not requested rather than skipped.
+              reason = env("PUBLICATION_REASON")
+              detail = reason[len("skipped"):].strip() if reason.startswith("skipped") else ""
+              deployment = f"not requested {detail}".strip() if detail else "not requested"
+          else:
+              # The gate said yes but an earlier stage failed, so the handoff was never attempted.
+              deployment = "not reached"
+
+          print("### Pipeline\n")
+          print("| Stage | Outcome |")
+          print("|-------|---------|")
+          print(f"| Checks | {checks} |")
+          print(f"| Production build | {build} |")
+          print(f"| Container image | {image} |")
+          print(f"| Publication | {publication} |")
+          print(f"| Deployment | {deployment} |")
+
+          if published:
+              print("\n### Published image\n")
+              print(f"- Repository: `{env('DOCKERHUB_IMAGE')}`")
+              print(f"- Tags: {', '.join(f'`{t.strip()}`' for t in env('IMAGE_TAGS').split(',') if t.strip())}")
+              print(f"- Digest: `{env('IMAGE_DIGEST')}`")
+
+          if requested:
+              # The deployment repository's run list for that workflow, not a specific run:
+              # workflow_dispatch returns 204 with no run id, so naming the run would mean guessing
+              # which of its runs is ours -- and guessing wrong under concurrent merges.
+              target = f"{env('DEPLOY_REPOSITORY')}/actions/workflows/{env('DEPLOY_WORKFLOW')}"
+              print("\n### Requested deployment\n")
+              print(f"- Image: `{env('DEPLOY_HANDED_OFF')}`")
+              print(f"- Digest: `{env('IMAGE_DIGEST')}`")
+              print(f"- Deploying in: [{env('DEPLOY_REPOSITORY')}]({env('SERVER_URL')}/{target})")
+          PY

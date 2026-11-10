@@ -62,8 +62,46 @@ Browser ──► Next.js server (this repo) ──► Quarkus API
 npm run dev     # development server with hot reload
 npm run build   # production build (also type-checks)
 npm run start   # serve the production build
-npm run lint    # ESLint
+npm run lint      # ESLint
+npm run typecheck # TypeScript, no output
+npm test          # Vitest; also writes reports/junit.xml for CI
 ```
+
+## Continuous integration
+
+`.github/workflows/ci.yaml` runs on pull requests to `main`, pushes to `main`, and by hand. It
+has one box per stage:
+
+1. **Publication gate**: decides whether this run publishes (only pushes and manual runs on
+   `main`). On those runs it fails at once if a setting below is missing.
+2. **Checks**: `npm ci`, then lint, type check, and tests.
+3. **Production build**: `npm run build` with `output: "standalone"`, packed into a checksummed
+   `site-standalone.tar.gz`.
+4. **Container image**: built once from that archive (`Dockerfile`), then started and asked three
+   questions: does `/` answer 200, does `/admin` send a signed-out visitor to `/entrar`, and does it
+   run as a non-root user.
+5. **Docker Hub**: pushes `sha-<commit>`, which is never overwritten, and `latest`. Both tags point
+   to the same image.
+6. **Deployment handoff**: asks the deployment repository's workflow to deploy that exact image.
+7. **Summary**: one table showing what each stage actually did.
+
+Settings, under **Settings → Secrets and variables → Actions**. They are needed only by runs that
+publish; pull requests need none.
+
+| Name | Kind | Example |
+|---|---|---|
+| `DOCKERHUB_IMAGE` | variable | `entrepataseturnos/entrepataseturnos-web` |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | variable | The same client id the API uses. It is embedded at build time, so changing it needs a new image. |
+| `DEPLOY_REPOSITORY` | variable | `entrePatasETurnos/deployEntrePatasETurnos` |
+| `DEPLOY_WORKFLOW` | variable | `cd-web.yaml` |
+| `DOCKERHUB_USERNAME` | secret | The Docker Hub account that pushes |
+| `DOCKERHUB_TOKEN` | secret | A Docker Hub access token with write access to that repository |
+| `DEPLOY_DISPATCH_TOKEN` | secret | A fine-grained token with **Actions: Read and write** on the deployment repository only |
+
+The deployment repository needs **its own workflow for the site**, declaring the `workflow_dispatch`
+inputs `image`, `tag`, `digest`, `revision`, and `run_url`. Do not point `DEPLOY_WORKFLOW` at the
+API's `cd.yaml`. The container reads `API_BASE_URL` at runtime, so the deployment sets it. Full
+contracts are in `specs/002-ci-docker-publish/`.
 
 ## Not built yet
 

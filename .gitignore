@@ -42,3 +42,7 @@ next-env.d.ts
 
 # the example env file documents the variables and holds no secrets
 !.env.example
+
+# CI
+/reports
+/site-standalone.tar.gz

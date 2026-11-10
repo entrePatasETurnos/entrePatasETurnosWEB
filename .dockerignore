@@ -1,0 +1,5 @@
+# The image is assembled from the prebuilt, checksummed build output only (see Dockerfile).
+# Nothing else from the tree -- source, node_modules, .env files, .git -- may enter the build
+# context, so it cannot end up in the image by accident.
+*
+!site-standalone.tar.gz
