@@ -239,7 +239,10 @@ jobs:
           fi
 
           tar -C "$out" -czf site-standalone.tar.gz .
-          tar -tzf site-standalone.tar.gz | grep -qx './server.js' \
+          # Listed to a file, not piped into `grep -q`: grep -q exits at the first match, tar then
+          # dies of SIGPIPE writing the rest of the listing, and pipefail turns that into a failure.
+          tar -tzf site-standalone.tar.gz > "$RUNNER_TEMP/site-standalone.list"
+          grep -qx './server.js' "$RUNNER_TEMP/site-standalone.list" \
             || { echo "::error::site-standalone.tar.gz has no ./server.js at its root"; exit 1; }
 
           ls -lh site-standalone.tar.gz
