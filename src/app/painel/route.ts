@@ -10,14 +10,26 @@ import { COOKIE, clearSession } from "@/lib/session";
 export async function GET(request: NextRequest) {
   const token = request.cookies.get(COOKIE.access)?.value;
   if (!token) {
-    return NextResponse.redirect(new URL("/entrar", request.url));
+    return redirectTo("/entrar");
   }
 
   const role = await fetchRole(token);
   if (!role) {
-    const response = NextResponse.redirect(new URL("/entrar", request.url));
+    const response = redirectTo("/entrar");
     clearSession(response.cookies);
     return response;
   }
-  return NextResponse.redirect(new URL(homeFor(role), request.url));
+  return redirectTo(homeFor(role));
+}
+
+/**
+ * A redirect with a relative Location, resolved by the browser against the address it is on.
+ *
+ * Not `NextResponse.redirect(new URL(path, request.url))`: behind the production NGINX, the
+ * standalone server's request.url is its own listen address, so that sent people to
+ * https://0.0.0.0:3000/app after signing in. (The proxy's redirects are not affected: Next.js
+ * turns same-origin redirects from proxy.ts into relative ones itself.)
+ */
+function redirectTo(path: string): NextResponse {
+  return new NextResponse(null, { status: 307, headers: { Location: path } });
 }
