@@ -11,8 +11,7 @@ import { signInWithGoogle, writeSession } from "@/lib/session";
  */
 export async function POST(request: NextRequest) {
   // Only accept calls from our own pages (a simple CSRF guard).
-  const origin = request.headers.get("origin");
-  if (origin && origin !== request.nextUrl.origin) {
+  if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -38,4 +37,33 @@ export async function POST(request: NextRequest) {
     console.error("sign-in: API unreachable", error);
     return NextResponse.json({ error: "api_unreachable" }, { status: 502 });
   }
+}
+
+/**
+ * True when the browser's Origin names the host it actually asked for.
+ *
+ * Not `request.nextUrl.origin`: behind the production NGINX, the standalone server builds that from
+ * the address it listens on (http://0.0.0.0:3000), so every real browser call looked cross-origin.
+ * The host the browser asked for arrives as X-Forwarded-Host (set by NGINX) or Host. A cross-site
+ * page cannot forge either: the browser sets Host itself, and adding X-Forwarded-Host to a
+ * cross-origin fetch needs a CORS preflight this route never approves.
+ *
+ * No Origin header at all (non-browser clients, some same-origin navigations) is allowed, as before.
+ */
+function isSameOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false; // includes the literal "null" sent by sandboxed or privacy-sensitive contexts
+  }
+
+  const requestedHost =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+    request.headers.get("host") ||
+    request.nextUrl.host;
+  return originHost === requestedHost;
 }
