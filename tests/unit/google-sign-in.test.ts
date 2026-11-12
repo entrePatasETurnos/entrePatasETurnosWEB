@@ -76,6 +76,43 @@ describe("POST /api/auth/google", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // Production: NGINX proxies https://www… to the standalone server, whose own URL is
+  // http://0.0.0.0:3000. The browser's Origin must be checked against the forwarded host.
+  function behindProxy(origin: string, forwardedHost = "www.example.com") {
+    return new NextRequest("http://0.0.0.0:3000/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        origin,
+        host: forwardedHost,
+        "x-forwarded-host": forwardedHost,
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({ idToken: "google-id-token" }),
+    });
+  }
+
+  it("accepts the site's own origin behind the production proxy", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(200, session)));
+
+    const response = await POST(behindProxy("https://www.example.com"));
+
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    ["another site", "https://evil.test"],
+    ["an opaque origin", "null"],
+  ])("rejects %s behind the production proxy", async (_label, origin) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(behindProxy(origin));
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["a missing token", {}],
     ["a non-string token", { idToken: 42 }],
