@@ -490,7 +490,11 @@ jobs:
           GH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
           DEPLOY_REPOSITORY: ${{ vars.DEPLOY_REPOSITORY }}
           DEPLOY_WORKFLOW: ${{ vars.DEPLOY_WORKFLOW }}
-          IMAGE: ${{ needs.publish.outputs.image }}
+          # From the variable, not needs.publish.outputs.image: GitHub drops a job output that
+          # contains a secret's value, and the image name contains DOCKERHUB_USERNAME's
+          # (`entrepataseturnos`), so that output always arrived empty ("Skip output 'image' since
+          # it may contain secret") and every dispatch was refused for having no image.
+          IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
           TAG: ${{ needs.publish.outputs.revision_tag }}
           DIGEST: ${{ needs.publish.outputs.digest }}
           REVISION: ${{ github.sha }}
