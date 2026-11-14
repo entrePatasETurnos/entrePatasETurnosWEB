@@ -1,6 +1,7 @@
 import { CalendarIcon, UserIcon } from "@/components/icons";
 import type { Booking } from "@/lib/bookings";
 import { formatDate, formatDateTime, joinNames, nightsBetween, plural } from "@/lib/format";
+import type { Urgency } from "@/lib/pendencies";
 import { BookingActions } from "./BookingActions";
 import styles from "./admin.module.css";
 
@@ -11,13 +12,26 @@ const STATUS_BADGE = {
   completed: { label: "Concluída", className: styles.badgeCompleted },
 } as const;
 
-export function BookingCard({ booking, returnTo }: { booking: Booking; returnTo: string }) {
+const URGENCY_BADGE = {
+  overdue: { label: "Check-in já passou", className: styles.badgeOverdue },
+  soon: { label: "Check-in em menos de 48 h", className: styles.badgeSoon },
+} as const;
+
+type Props = {
+  booking: Booking;
+  returnTo: string;
+  /** Set on the administrator home, where pending bookings are ordered by how soon they start. */
+  urgency?: Urgency;
+};
+
+export function BookingCard({ booking, returnTo, urgency = null }: Props) {
   const petNames = joinNames(booking.pets.map((pet) => pet.name)) || "Pet removido";
   const nights = nightsBetween(booking.checkIn, booking.checkOut);
   const badge = STATUS_BADGE[booking.status];
+  const urgent = urgency ? URGENCY_BADGE[urgency] : null;
 
   return (
-    <article className={styles.card} data-status={booking.status}>
+    <article className={styles.card} data-status={booking.status} data-urgency={urgency ?? undefined}>
       <div className={styles.who}>
         <span className={styles.avatar} aria-hidden="true">
           {petNames.charAt(0)}
@@ -44,7 +58,14 @@ export function BookingCard({ booking, returnTo }: { booking: Booking; returnTo:
       </div>
 
       <div className={styles.side}>
-        <span className={`${styles.badge} ${badge.className}`}>{badge.label}</span>
+        <span className={styles.badges}>
+          {urgent && <span className={`${styles.badge} ${urgent.className}`}>{urgent.label}</span>}
+          <span className={`${styles.badge} ${badge.className}`}>{badge.label}</span>
+        </span>
+        {booking.status === "registered" && !booking._links.approve && !booking._links.deny && (
+          // The API omits the review links on an administrator's own booking (no self-review).
+          <span className={styles.ownNote}>Reserva sua: outro administrador precisa revisar.</span>
+        )}
         <BookingActions
           id={booking.id}
           petNames={petNames}

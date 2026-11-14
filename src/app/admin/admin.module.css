@@ -501,3 +501,261 @@ button:disabled {
     align-items: flex-start;
   }
 }
+
+/* ---------- Admin section nav (Pendências | Hospedagens) ---------- */
+.adminNav {
+  background: var(--teal-900);
+  border-top: 1px solid var(--teal-700);
+}
+
+.adminNavInner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.adminNavLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 3px solid transparent;
+  color: var(--teal-100);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.adminNavLink:hover {
+  color: var(--cream-50);
+}
+
+.adminNavActive,
+.adminNavActive:hover {
+  border-bottom-color: var(--copper-300);
+  color: var(--cream-50);
+}
+
+/* ---------- Home: summary ---------- */
+.summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 720px) {
+  .summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+.ownNote {
+  max-width: 260px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.summaryCard {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 84px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  color: var(--teal-900);
+  text-decoration: none;
+}
+
+a.summaryCard:hover {
+  border-color: var(--teal-300);
+  box-shadow: var(--shadow-md);
+  color: var(--teal-900);
+}
+
+.summaryHot {
+  background: var(--teal-700);
+  border-color: var(--teal-700);
+  color: var(--cream-50);
+}
+
+a.summaryHot:hover {
+  background: var(--teal-900);
+  color: var(--cream-50);
+}
+
+.summarySoon {
+  background: var(--cream-50);
+  border-style: dashed;
+  color: var(--ink-500);
+}
+
+.summaryIcon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--teal-100);
+  color: var(--teal-700);
+}
+
+.summaryHot .summaryIcon {
+  background: var(--teal-600);
+  color: var(--cream-50);
+}
+
+.summarySoon .summaryIcon {
+  background: var(--ink-100);
+  color: var(--ink-500);
+}
+
+.summaryText {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.summaryText strong {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 24px;
+}
+
+.summarySoon .summaryText strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* ---------- Home: sections ---------- */
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panelHead h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 19px;
+}
+
+.headCount {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  background: var(--cream-100);
+  color: var(--teal-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.panelHint {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.allClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 16px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ok-text);
+  text-align: center;
+}
+
+.capped {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.capped a {
+  font-weight: 700;
+}
+
+.panelSoon {
+  background: var(--cream-50);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.soonText {
+  padding: 16px 20px 20px;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.footerLink {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.footerLink a {
+  font-weight: 700;
+}
+
+/* ---------- Urgency ---------- */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.badgeSoon {
+  background: var(--copper-600);
+  color: var(--white);
+}
+
+.badgeOverdue {
+  background: var(--copper-800);
+  color: var(--white);
+}
+
+.card[data-urgency="overdue"],
+.card[data-urgency="soon"] {
+  border-color: var(--copper-300);
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .badges {
+    justify-content: flex-start;
+  }
+  .ownNote {
+    text-align: left;
+  }
+  .summaryCard {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

@@ -13,7 +13,8 @@ Built with **Next.js 16** (App Router, Cache Components), **React 19** and **Typ
 | `/` | everyone | Landing page (static, prerendered) |
 | `/entrar` | signed out | Login with Google |
 | `/painel` | signed in | Asks the API for the role and redirects to `/admin` or `/app` |
-| `/admin` | administrators | Approve, deny (with a reason), complete, approve all; filter by status |
+| `/admin` | administrators | Home: everything waiting (hotel bookings to approve, soonest check-in first, urgent ones marked; stays to complete; baths and training as "em breve"), all actionable in place |
+| `/admin/hospedagens` | administrators | Every hotel booking, filtered by status and paged |
 | `/app` | tutors | The tutor's own bookings and their status |
 | `/api/auth/google` | the login page | Exchanges a Google ID token for an API session |
 
