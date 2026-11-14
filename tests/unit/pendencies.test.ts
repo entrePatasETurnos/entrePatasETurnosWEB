@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Booking } from "@/lib/bookings";
-import { pendingByCheckIn, toComplete, urgencyOf } from "@/lib/pendencies";
+import type { BathAppointment } from "@/lib/baths";
+import { entryKey, pendingAcross, pendingByCheckIn, toComplete, toCompleteAcross, urgencyOf } from "@/lib/pendencies";
 
 const NOW = new Date("2026-11-14T12:00:00Z");
 
@@ -90,5 +91,51 @@ describe("toComplete", () => {
       booking(4, { status: "completed", _links: complete }),
     ]);
     expect(list.map((b) => b.id)).toEqual([3, 1]);
+  });
+});
+
+describe("pendingAcross (spec 007)", () => {
+  function bath(id: number, overrides: Partial<BathAppointment> = {}): BathAppointment {
+    return {
+      id,
+      ownerId: 9,
+      status: "registered",
+      startsAt: "2026-11-21T12:30:00Z",
+      endsAt: "2026-11-21T13:30:00Z",
+      pet: { id: id * 10, name: `Bath pet ${id}` },
+      review: null,
+      completion: null,
+      createdAt: "2026-11-10T10:00:00Z",
+      updatedAt: "2026-11-10T10:00:00Z",
+      _links: {},
+      ...overrides,
+    };
+  }
+
+  it("merges stays and baths into one list ordered by start, with urgency for both", () => {
+    const entries = pendingAcross(
+      [booking(1, { checkIn: "2026-11-25T11:00:00Z" }), booking(2, { checkIn: "2026-11-15T11:00:00Z" })],
+      [bath(7, { startsAt: "2026-11-15T10:30:00Z" }), bath(8, { startsAt: "2026-11-20T12:30:00Z" })],
+      NOW,
+    );
+    expect(entries.map(entryKey)).toEqual(["bath-7", "hotel-2", "bath-8", "hotel-1"]);
+    expect(entries.map((entry) => entry.urgency)).toEqual(["soon", "soon", null, null]);
+  });
+
+  it("keeps only what waits for a decision", () => {
+    const entries = pendingAcross([booking(1, { status: "approved" })], [bath(7, { status: "denied" }), bath(8)], NOW);
+    expect(entries.map(entryKey)).toEqual(["bath-8"]);
+  });
+
+  it("puts what ended first on top of the to-complete list, and only what the API lets complete", () => {
+    const complete = { complete: { href: "/x/complete", method: "PUT" } };
+    const entries = toCompleteAcross(
+      [booking(1, { status: "approved", checkOut: "2026-11-13T21:00:00Z", _links: complete })],
+      [
+        bath(7, { status: "approved", endsAt: "2026-11-12T13:30:00Z", _links: complete }),
+        bath(8, { status: "approved", endsAt: "2026-11-11T13:30:00Z" }),
+      ],
+    );
+    expect(entries.map(entryKey)).toEqual(["bath-7", "hotel-1"]);
   });
 });

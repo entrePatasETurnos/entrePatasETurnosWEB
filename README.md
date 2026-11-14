@@ -13,7 +13,7 @@ Built with **Next.js 16** (App Router, Cache Components), **React 19** and **Typ
 | `/` | everyone | Landing page (static, prerendered) |
 | `/entrar` | signed out | Login with Google |
 | `/painel` | signed in | Asks the API for the role and redirects to `/admin` or `/app` |
-| `/admin` | administrators | Home: everything waiting (hotel bookings to approve, soonest check-in first, urgent ones marked; stays to complete; baths and training as "em breve"), all actionable in place |
+| `/admin` | administrators | Home: everything waiting in one list, hotel stays and baths together, soonest first, urgent ones marked; stays and baths to complete; training as "em breve". All actionable in place. Baths show as "em breve" too while the API answers 404 for them (before API spec 032 is deployed) |
 | `/admin/hospedagens` | administrators | Every hotel booking, filtered by status and paged |
 | `/app` | tutors | The tutor's own bookings and their status |
 | `/api/auth/google` | the login page | Exchanges a Google ID token for an API session |
@@ -106,7 +106,7 @@ contracts are in `specs/002-ci-docker-publish/`.
 
 ## Not built yet
 
-- **Banho & Tosa and Adestramento** appear as "Em breve": the API has no endpoints for them yet.
+- **Adestramento** appears as "Em breve": the API has no endpoints for it yet. **Banho & Tosa** needs API spec 032 (`/v1/bath-appointments`, PR #25 in entrePatasETurnosAPI); until that is deployed the home keeps baths as "em breve" on its own. Tutors cannot request a bath from the site yet.
 - **Booking form for tutors** (`POST /v1/accommodation-bookings` plus the pet list): the next feature.
 - **Tutor names on admin cards**: the API sends only `ownerId`.
 - **Password login**: the API supports password registration but not password sign-in yet.

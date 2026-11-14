@@ -96,7 +96,9 @@ async function Requests({ searchParams }: { searchParams: PageProps<"/admin/hosp
               </Link>
             ))}
           </nav>
-          {approvable.length > 1 && <ApproveAll ids={approvable} returnTo={returnTo} />}
+          {approvable.length > 1 && (
+            <ApproveAll targets={approvable.map((id) => ({ service: "hotel", id }))} returnTo={returnTo} />
+          )}
         </div>
 
         {notice && <Notice key={notice} message={notice} />}

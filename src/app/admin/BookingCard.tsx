@@ -1,4 +1,4 @@
-import { CalendarIcon, UserIcon } from "@/components/icons";
+import { CalendarIcon, HomeIcon, UserIcon } from "@/components/icons";
 import type { Booking } from "@/lib/bookings";
 import { formatDate, formatDateTime, joinNames, nightsBetween, plural } from "@/lib/format";
 import type { Urgency } from "@/lib/pendencies";
@@ -22,9 +22,11 @@ type Props = {
   returnTo: string;
   /** Set on the administrator home, where pending bookings are ordered by how soon they start. */
   urgency?: Urgency;
+  /** Labels the card "Hotel": needed where stays and baths share one list. */
+  showService?: boolean;
 };
 
-export function BookingCard({ booking, returnTo, urgency = null }: Props) {
+export function BookingCard({ booking, returnTo, urgency = null, showService = false }: Props) {
   const petNames = joinNames(booking.pets.map((pet) => pet.name)) || "Pet removido";
   const nights = nightsBetween(booking.checkIn, booking.checkOut);
   const badge = STATUS_BADGE[booking.status];
@@ -59,6 +61,11 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
 
       <div className={styles.side}>
         <span className={styles.badges}>
+          {showService && (
+            <span className={`${styles.badge} ${styles.badgeService}`}>
+              <HomeIcon size={12} /> Hotel
+            </span>
+          )}
           {urgent && <span className={`${styles.badge} ${urgent.className}`}>{urgent.label}</span>}
           <span className={`${styles.badge} ${badge.className}`}>{badge.label}</span>
         </span>
@@ -67,6 +74,7 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
           <span className={styles.ownNote}>Reserva sua: outro administrador precisa revisar.</span>
         )}
         <BookingActions
+          service="hotel"
           id={booking.id}
           petNames={petNames}
           returnTo={returnTo}

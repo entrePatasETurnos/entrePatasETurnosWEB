@@ -20,6 +20,12 @@ const dateOnly = new Intl.DateTimeFormat("pt-BR", {
   year: "numeric",
 });
 
+const timeOnly = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 const isoDay = new Intl.DateTimeFormat("en-CA", {
   timeZone: TIME_ZONE,
   year: "numeric",
@@ -34,6 +40,11 @@ function capitalize(text: string) {
 /** "Qua., 11/11, 08:00" */
 export function formatDateTime(iso: string) {
   return capitalize(dateTime.format(new Date(iso)));
+}
+
+/** "10:30" */
+export function formatTime(iso: string) {
+  return timeOnly.format(new Date(iso));
 }
 
 /** "07/11/2026" */
