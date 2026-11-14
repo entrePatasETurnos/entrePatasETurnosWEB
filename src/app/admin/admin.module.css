@@ -759,3 +759,12 @@ a.summaryHot:hover {
     gap: 8px;
   }
 }
+
+/* A stay or a bath, in the home's mixed list (spec 007). */
+.badgeService {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--teal-100);
+  color: var(--teal-900);
+}
