@@ -58,6 +58,7 @@ describe("signed-out visitors of protected routes", () => {
   it.each([
     ["/admin", "/admin"],
     ["/admin/reservas?x=1", "/admin/reservas?x=1"],
+    ["/admin/hospedagens?status=approved", "/admin/hospedagens?status=approved"],
     ["/app", "/app"],
     ["/app/pets", "/app/pets"],
   ])("sends %s to /entrar and remembers where they were going", async (path, de) => {
