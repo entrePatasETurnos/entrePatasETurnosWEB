@@ -108,7 +108,9 @@ contracts are in `specs/002-ci-docker-publish/`.
 
 - **Adestramento** appears as "Em breve": the API has no endpoints for it yet. **Banho & Tosa** needs API spec 032 (`/v1/bath-appointments`, PR #25 in entrePatasETurnosAPI); until that is deployed the home keeps baths as "em breve" on its own. Tutors cannot request a bath from the site yet.
 - **Booking form for tutors** (`POST /v1/accommodation-bookings` plus the pet list): the next feature.
-- **Tutor names on admin cards**: the API sends only `ownerId`.
+- **Tutor names on bath cards**: stay cards show the tutor's name (API spec 033's `ownerName`) and the API's
+  `nights` (API spec 034), but the bath list has no owner name yet, so bath cards show "Tutor nº" only
+  (spec 008). The tutor area still counts nights itself.
 - **Password login**: the API supports password registration but not password sign-in yet.
 - **API improvement worth making:** add `role` to `GET /v1/users/me`, then replace the role check in
   `src/lib/auth.ts`.

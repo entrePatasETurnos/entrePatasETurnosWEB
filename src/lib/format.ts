@@ -52,11 +52,26 @@ export function formatDate(iso: string) {
   return dateOnly.format(new Date(iso));
 }
 
-/** Calendar nights between check-in and check-out, counted in Brasília time. */
+/**
+ * Calendar nights between check-in and check-out, counted in Brasília time. Customer area only:
+ * administrator cards read the API's nights (spec 008).
+ */
 export function nightsBetween(checkIn: string, checkOut: string) {
   const start = Date.parse(isoDay.format(new Date(checkIn)));
   const end = Date.parse(isoDay.format(new Date(checkOut)));
   return Math.max(0, Math.round((end - start) / 86_400_000));
+}
+
+/** The API's own count (API spec 034); null when the API did not send a usable one. Never derived from dates. */
+export function nightsLabel(nights?: number | null): string | null {
+  if (typeof nights !== "number" || !Number.isInteger(nights) || nights < 0) return null;
+  return plural(nights, "noite", "noites");
+}
+
+/** "Ana Souza" + "Tutor nº 7". The number stays because names repeat (spec 008). */
+export function tutorLabel(ownerId: number, ownerName?: string | null): { name: string | null; number: string } {
+  const name = typeof ownerName === "string" ? ownerName.trim() : "";
+  return { name: name || null, number: `Tutor nº ${ownerId}` };
 }
 
 export function plural(count: number, one: string, many: string) {

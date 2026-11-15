@@ -12,9 +12,13 @@ export type Link = { href: string; method?: string };
 export type Booking = {
   id: number;
   ownerId: number;
+  /** The owner's current account name (API spec 033). Absent on an older API. */
+  ownerName?: string;
   status: BookingStatus;
   checkIn: string;
   checkOut: string;
+  /** Calendar nights in Brasília time (API spec 034). Absent on an older API; never computed here. */
+  nights?: number;
   pets: { id: number; name: string }[];
   review: { reviewerId: number | null; reviewedAt: string; denialReason: string | null } | null;
   completion: { completedById: number | null; completedAt: string } | null;

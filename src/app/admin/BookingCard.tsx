@@ -1,6 +1,6 @@
 import { CalendarIcon, HomeIcon, UserIcon } from "@/components/icons";
 import type { Booking } from "@/lib/bookings";
-import { formatDate, formatDateTime, joinNames, nightsBetween, plural } from "@/lib/format";
+import { formatDate, formatDateTime, joinNames, nightsLabel, plural, tutorLabel } from "@/lib/format";
 import type { Urgency } from "@/lib/pendencies";
 import { BookingActions } from "./BookingActions";
 import styles from "./admin.module.css";
@@ -28,8 +28,9 @@ type Props = {
 
 export function BookingCard({ booking, returnTo, urgency = null, showService = false }: Props) {
   const petNames = joinNames(booking.pets.map((pet) => pet.name)) || "Pet removido";
-  const nights = nightsBetween(booking.checkIn, booking.checkOut);
+  const nights = nightsLabel(booking.nights);
   const badge = STATUS_BADGE[booking.status];
+  const tutor = tutorLabel(booking.ownerId, booking.ownerName);
   const urgent = urgency ? URGENCY_BADGE[urgency] : null;
 
   return (
@@ -40,9 +41,12 @@ export function BookingCard({ booking, returnTo, urgency = null, showService = f
         </span>
         <div>
           <h3>{petNames}</h3>
-          {/* The API sends only the owner's id, never a name or e-mail (privacy by design). */}
+          {/* Name from API spec 033's ownerName; the number stays because names repeat. */}
           <span className={styles.owner}>
-            <UserIcon size={14} /> Tutor nº {booking.ownerId}
+            <UserIcon size={14} />
+            {tutor.name && <span className={styles.ownerName}>{tutor.name}</span>}
+            {tutor.name && <span aria-hidden="true">·</span>}
+            <span className={styles.ownerNumber}>{tutor.number}</span>
           </span>
         </div>
       </div>
@@ -53,7 +57,8 @@ export function BookingCard({ booking, returnTo, urgency = null, showService = f
           {formatDateTime(booking.checkIn)} → {formatDateTime(booking.checkOut)}
         </span>
         <span>
-          Hospedagem · {plural(nights, "noite", "noites")} · {plural(booking.pets.length, "pet", "pets")}
+          Hospedagem · {nights && <>{nights} · </>}
+          {plural(booking.pets.length, "pet", "pets")}
         </span>
         {booking.review?.denialReason && <span className={styles.reason}>Motivo: {booking.review.denialReason}</span>}
         <span className={styles.meta}>Solicitada em {formatDate(booking.createdAt)}</span>
