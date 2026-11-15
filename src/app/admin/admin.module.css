@@ -287,11 +287,25 @@
 }
 
 .owner {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* A long name wraps instead of pushing the actions off the card (spec 008). */
+.ownerName {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* "Tutor nº 7" never breaks across lines. */
+.ownerNumber {
+  white-space: nowrap;
 }
 
 .details {
@@ -758,4 +772,13 @@ a.summaryHot:hover {
     align-items: flex-start;
     gap: 8px;
   }
+}
+
+/* A stay or a bath, in the home's mixed list (spec 007). */
+.badgeService {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--teal-100);
+  color: var(--teal-900);
 }

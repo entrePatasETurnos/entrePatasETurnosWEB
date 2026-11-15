@@ -1,6 +1,6 @@
-import { CalendarIcon, UserIcon } from "@/components/icons";
+import { CalendarIcon, HomeIcon, UserIcon } from "@/components/icons";
 import type { Booking } from "@/lib/bookings";
-import { formatDate, formatDateTime, joinNames, nightsBetween, plural } from "@/lib/format";
+import { formatDate, formatDateTime, joinNames, nightsLabel, plural, tutorLabel } from "@/lib/format";
 import type { Urgency } from "@/lib/pendencies";
 import { BookingActions } from "./BookingActions";
 import styles from "./admin.module.css";
@@ -22,12 +22,15 @@ type Props = {
   returnTo: string;
   /** Set on the administrator home, where pending bookings are ordered by how soon they start. */
   urgency?: Urgency;
+  /** Labels the card "Hotel": needed where stays and baths share one list. */
+  showService?: boolean;
 };
 
-export function BookingCard({ booking, returnTo, urgency = null }: Props) {
+export function BookingCard({ booking, returnTo, urgency = null, showService = false }: Props) {
   const petNames = joinNames(booking.pets.map((pet) => pet.name)) || "Pet removido";
-  const nights = nightsBetween(booking.checkIn, booking.checkOut);
+  const nights = nightsLabel(booking.nights);
   const badge = STATUS_BADGE[booking.status];
+  const tutor = tutorLabel(booking.ownerId, booking.ownerName);
   const urgent = urgency ? URGENCY_BADGE[urgency] : null;
 
   return (
@@ -38,9 +41,12 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
         </span>
         <div>
           <h3>{petNames}</h3>
-          {/* The API sends only the owner's id, never a name or e-mail (privacy by design). */}
+          {/* Name from API spec 033's ownerName; the number stays because names repeat. */}
           <span className={styles.owner}>
-            <UserIcon size={14} /> Tutor nº {booking.ownerId}
+            <UserIcon size={14} />
+            {tutor.name && <span className={styles.ownerName}>{tutor.name}</span>}
+            {tutor.name && <span aria-hidden="true">·</span>}
+            <span className={styles.ownerNumber}>{tutor.number}</span>
           </span>
         </div>
       </div>
@@ -51,7 +57,8 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
           {formatDateTime(booking.checkIn)} → {formatDateTime(booking.checkOut)}
         </span>
         <span>
-          Hospedagem · {plural(nights, "noite", "noites")} · {plural(booking.pets.length, "pet", "pets")}
+          Hospedagem · {nights && <>{nights} · </>}
+          {plural(booking.pets.length, "pet", "pets")}
         </span>
         {booking.review?.denialReason && <span className={styles.reason}>Motivo: {booking.review.denialReason}</span>}
         <span className={styles.meta}>Solicitada em {formatDate(booking.createdAt)}</span>
@@ -59,6 +66,11 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
 
       <div className={styles.side}>
         <span className={styles.badges}>
+          {showService && (
+            <span className={`${styles.badge} ${styles.badgeService}`}>
+              <HomeIcon size={12} /> Hotel
+            </span>
+          )}
           {urgent && <span className={`${styles.badge} ${urgent.className}`}>{urgent.label}</span>}
           <span className={`${styles.badge} ${badge.className}`}>{badge.label}</span>
         </span>
@@ -67,6 +79,7 @@ export function BookingCard({ booking, returnTo, urgency = null }: Props) {
           <span className={styles.ownNote}>Reserva sua: outro administrador precisa revisar.</span>
         )}
         <BookingActions
+          service="hotel"
           id={booking.id}
           petNames={petNames}
           returnTo={returnTo}
