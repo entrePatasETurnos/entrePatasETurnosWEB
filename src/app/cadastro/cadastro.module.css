@@ -1,0 +1,131 @@
+/* The registration form (spec 009). The page layout comes from ../entrar/entrar.module.css. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-heading);
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  color: var(--ink-900);
+  font: inherit;
+  font-size: 16px;
+}
+
+.input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--teal-500);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--copper-600);
+}
+
+.fieldError {
+  font-size: 14px;
+  color: var(--copper-800);
+}
+
+.formError {
+  padding: 10px 14px;
+  border: 1px solid var(--copper-300);
+  border-radius: var(--radius-md);
+  background: var(--copper-100);
+  color: var(--copper-800);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.formError a {
+  color: inherit;
+}
+
+.formError:focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--teal-700);
+  color: var(--cream-50);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--teal-600);
+}
+
+.submit:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.success {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--ok-bg);
+  color: var(--ok-text);
+  overflow-wrap: anywhere;
+}
+
+.success h2 {
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--ok-text);
+}
+
+.success h2:focus {
+  outline: none;
+}
+
+.success p {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink-700);
+}
+
+.success a {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+}
