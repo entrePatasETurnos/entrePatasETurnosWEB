@@ -12,6 +12,7 @@ Built with **Next.js 16** (App Router, Cache Components), **React 19** and **Typ
 |---|---|---|
 | `/` | everyone | Landing page (static, prerendered) |
 | `/entrar` | signed out | Login with Google |
+| `/cadastro` | signed out | Registration with e-mail and password (`POST /v1/users`, spec 009); the new account must confirm its e-mail before it can sign in |
 | `/painel` | signed in | Asks the API for the role and redirects to `/admin` or `/app` |
 | `/admin` | administrators | Home: everything waiting in one list, hotel stays and baths together, soonest first, urgent ones marked; stays and baths to complete; training as "em breve". All actionable in place. Baths show as "em breve" too while the API answers 404 for them (before API spec 032 is deployed) |
 | `/admin/hospedagens` | administrators | Every hotel booking, filtered by status and paged |
@@ -111,6 +112,7 @@ contracts are in `specs/002-ci-docker-publish/`.
 - **Tutor names on bath cards**: stay cards show the tutor's name (API spec 033's `ownerName`) and the API's
   `nights` (API spec 034), but the bath list has no owner name yet, so bath cards show "Tutor nº" only
   (spec 008). The tutor area still counts nights itself.
-- **Password login**: the API supports password registration but not password sign-in yet.
+- **Password login**: registration with e-mail and password exists (`/cadastro`, spec 009), but the API does
+  not support password sign-in yet, so new password accounts cannot sign in from the site.
 - **API improvement worth making:** add `role` to `GET /v1/users/me`, then replace the role check in
   `src/lib/auth.ts`.

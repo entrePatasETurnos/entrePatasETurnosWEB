@@ -9,7 +9,8 @@ import { COOKIE, clearSession, refreshSession, writeSession, type SessionRespons
  * 1. Renews the session. The access token lives ~15 minutes; when its cookie has expired but the
  *    refresh token is still there, it gets a new pair from the API and passes the new token to the
  *    page in the same request, so the person never notices.
- * 2. Sends signed-out visitors of /admin and /app to the login page.
+ * 2. Sends signed-out visitors of /admin and /app to the login page, and signed-in visitors of the
+ *    login and registration pages (/entrar, /cadastro) to /painel.
  *
  * This is an optimistic check (it only sees cookies). The real authorization happens in each page
  * and Server Action, which ask the API.
@@ -22,8 +23,8 @@ export async function proxy(request: NextRequest) {
   const refresh = request.cookies.get(COOKIE.refresh)?.value;
   const sessionId = request.cookies.get(COOKIE.session)?.value;
 
-  // Signed in already? Skip the login page.
-  if (pathname === "/entrar" && (access || (refresh && sessionId))) {
+  // Signed in already? Skip the login and registration pages.
+  if ((pathname === "/entrar" || pathname === "/cadastro") && (access || (refresh && sessionId))) {
     return NextResponse.redirect(new URL("/painel", request.url));
   }
 
@@ -73,5 +74,5 @@ function toLogin(request: NextRequest, from: string) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/app/:path*", "/painel", "/entrar"],
+  matcher: ["/admin/:path*", "/app/:path*", "/painel", "/entrar", "/cadastro"],
 };

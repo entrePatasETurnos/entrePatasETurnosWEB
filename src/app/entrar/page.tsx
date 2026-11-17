@@ -39,6 +39,9 @@ export default function EntrarPage() {
           </div>
           <GoogleSignIn />
           <p className={styles.help}>
+            Não tem conta? <Link href="/cadastro">Criar conta com e-mail e senha</Link>
+          </p>
+          <p className={styles.help}>
             Problemas para entrar?{" "}
             <a href="https://wa.me/5561998817120">Fale com a gente no WhatsApp</a>
           </p>

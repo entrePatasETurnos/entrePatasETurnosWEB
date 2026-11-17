@@ -118,3 +118,16 @@ describe("the sign-in page", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 });
+
+describe("the registration page (spec 009)", () => {
+  it("sends a signed-in visitor on to /painel", async () => {
+    const response = await proxy(request("/cadastro", { [COOKIE.access]: "token" }));
+    expect(response.status).toBe(307);
+    expect(redirectTarget(response).pathname).toBe("/painel");
+  });
+
+  it("shows the page to a signed-out visitor", async () => {
+    const response = await proxy(request("/cadastro"));
+    expect(response.headers.get("location")).toBeNull();
+  });
+});
