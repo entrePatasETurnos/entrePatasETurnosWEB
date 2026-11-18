@@ -16,6 +16,7 @@ Built with **Next.js 16** (App Router, Cache Components), **React 19** and **Typ
 | `/painel` | signed in | Asks the API for the role and redirects to `/admin` or `/app` |
 | `/admin` | administrators | Home: everything waiting in one list, hotel stays and baths together, soonest first, urgent ones marked; stays and baths to complete; training as "em breve". All actionable in place. Baths show as "em breve" too while the API answers 404 for them (before API spec 032 is deployed) |
 | `/admin/hospedagens` | administrators | Every hotel booking, filtered by status and paged |
+| `/admin/usuarios` | administrators | Every account, searchable by name or e-mail; `/admin/usuarios/{id}` changes the name and the profile (Cliente / Administrador). Needs API `GET /v1/users`, `GET /v1/users/{id}` and `PUT /v1/users/{id}/name` (see `specs/010-admin-user-management/contracts/api-users.md`); shows "em breve" while the list answers 404 |
 | `/app` | tutors | The tutor's own bookings and their status |
 | `/api/auth/google` | the login page | Exchanges a Google ID token for an API session |
 

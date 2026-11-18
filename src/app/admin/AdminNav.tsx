@@ -4,6 +4,7 @@ import styles from "./admin.module.css";
 const LINKS = [
   { key: "inicio", href: "/admin", label: "Pendências" },
   { key: "hospedagens", href: "/admin/hospedagens", label: "Hospedagens" },
+  { key: "usuarios", href: "/admin/usuarios", label: "Usuários" },
 ] as const;
 
 /** The administrator's sections. `current` marks the page being shown (for screen readers too). */
