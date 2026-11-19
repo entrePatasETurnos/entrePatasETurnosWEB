@@ -1,19 +1,16 @@
 /**
- * The user edit Server Action (spec 010, research R4–R6). The real `requireRole` runs, so the access
+ * The user list's row Server Action (spec 011, research R5–R7). The real `requireRole` runs, so the access
  * check is the one pages use: the role comes from the API for the session's token, however the session
- * was started (Google or password). `fetch` is stubbed by route; cookies and redirects are mocked.
+ * was started (Google or password). `fetch` is stubbed by route; cookies, redirects and `refresh` are mocked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jar = new Map<string, string>();
-const setCookie = vi.fn((name: string, value: string) => {
-  jar.set(name, value);
-});
 
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (jar.has(name) ? { name, value: jar.get(name) } : undefined),
-    set: setCookie,
+    set: vi.fn(),
   }),
 }));
 
@@ -29,14 +26,19 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { saveUserAction } = await import("@/app/admin/usuarios/actions");
-const { INITIAL_USER_EDIT_STATE } = await import("@/lib/user-edit");
+const refresh = vi.fn();
+vi.mock("next/cache", () => ({ refresh: () => refresh() }));
+
+const { saveUserRowAction } = await import("@/app/admin/usuarios/actions");
+const { requireRole } = await import("@/lib/auth");
+const { INITIAL_USER_ROW_STATE } = await import("@/lib/user-edit");
 
 type Call = { method: string; path: string; body?: unknown };
 type Route = (call: Call) => Response | undefined;
 
 const TARGET = 7;
 const ME = 3;
+const SAVED = { id: TARGET, name: "Ana Souza", email: "ana@example.com", role: "CLIENT", status: "ACTIVE" };
 
 function json(status: number, body: unknown = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -57,7 +59,7 @@ function api(overrides: Route = () => undefined, role: "ADMINISTRATOR" | "CLIENT
       if (answer) return answer;
       if (path.startsWith("/v1/accommodation-bookings")) return json(role === "ADMINISTRATOR" ? 200 : 403);
       if (path === "/v1/users/me") return json(200, { id: ME, name: "Eu" });
-      if (call.method === "PUT") return json(200, { id: TARGET });
+      if (call.method === "PATCH") return json(200, { ...SAVED, ...(call.body as object) });
       return json(500, { error: "unexpected" });
     }),
   );
@@ -72,19 +74,19 @@ function form(fields: Partial<Record<"name" | "role" | "originalName" | "origina
 
 async function save(fields: Parameters<typeof form>[0], id = TARGET) {
   try {
-    return await saveUserAction(id, INITIAL_USER_EDIT_STATE, form(fields));
+    return await saveUserRowAction(id, INITIAL_USER_ROW_STATE, form(fields));
   } catch (error) {
     if (error instanceof Redirect) return { redirectedTo: error.to };
     throw error;
   }
 }
 
-const writes = () => calls.filter((call) => call.method === "PUT");
+const writes = () => calls.filter((call) => call.method === "PATCH");
 
 beforeEach(() => {
   jar.clear();
   jar.set("ept_at", "token-admin");
-  setCookie.mockClear();
+  refresh.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -93,7 +95,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("access", () => {
+describe("access (Principle III)", () => {
   it("sends a client to their own area without touching the account", async () => {
     api(undefined, "CLIENT");
     await expect(save({ name: "Outro" })).resolves.toEqual({ redirectedTo: "/app" });
@@ -106,73 +108,129 @@ describe("access", () => {
     await expect(save({ name: "Outro" })).resolves.toEqual({ redirectedTo: "/entrar" });
     expect(calls).toEqual([]);
   });
+
+  it("guards the list page the same way: clients and signed-out visitors never reach the list", async () => {
+    api(undefined, "CLIENT");
+    await expect(requireRole("ADMINISTRATOR")).rejects.toMatchObject({ to: "/app" });
+    jar.clear();
+    api();
+    await expect(requireRole("ADMINISTRATOR")).rejects.toMatchObject({ to: "/entrar" });
+    expect(calls.some((call) => call.path.startsWith("/v1/users"))).toBe(false);
+  });
 });
 
-describe("renaming (US1)", () => {
-  it("says there is nothing to save, without calling the API", async () => {
+describe("renaming (US2)", () => {
+  it("sends nothing when nothing changed", async () => {
     api();
-    await expect(save({})).resolves.toMatchObject({ status: "error", formError: "Nada para salvar." });
+    await expect(save({})).resolves.toEqual({ status: "unchanged" });
+    expect(writes()).toEqual([]);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["   ", "Informe o nome completo."],
+    ["a".repeat(256), "O nome deve ter no máximo 255 caracteres."],
+  ])("refuses an invalid name before calling the API", async (name, message) => {
+    api();
+    await expect(save({ name })).resolves.toMatchObject({ status: "error", fieldErrors: { name: message } });
     expect(writes()).toEqual([]);
   });
 
-  it("refuses a blank name before calling the API", async () => {
+  it("sends the trimmed name in one PATCH, refreshes, and answers what the API saved", async () => {
     api();
-    await expect(save({ name: "   " })).resolves.toMatchObject({ fieldErrors: { name: "Informe o nome completo." } });
-    expect(writes()).toEqual([]);
+    await expect(save({ name: "  Ana Souza  " })).resolves.toEqual({
+      status: "saved",
+      user: { id: TARGET, name: "Ana Souza", email: "ana@example.com", role: "CLIENT", status: "ACTIVE" },
+    });
+    expect(writes()).toEqual([{ method: "PATCH", path: "/v1/users/7", body: { name: "Ana Souza" } }]);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("sends the trimmed name once, then goes back to the page with a notice", async () => {
+  it("never edits the caller's own account", async () => {
     api();
-    await expect(save({ name: "  Ana Souza  " })).resolves.toEqual({ redirectedTo: "/admin/usuarios/7?aviso=salvo" });
-    expect(writes()).toEqual([{ method: "PUT", path: "/v1/users/7/name", body: { name: "Ana Souza" } }]);
+    await expect(save({ name: "Eu Mesmo" }, ME)).resolves.toMatchObject({
+      status: "error",
+      formError: "Você não tem permissão para fazer isso.",
+    });
+    expect(writes()).toEqual([]);
   });
 
   it("shows the API's message for the name under the field", async () => {
-    api((call) => (call.path.endsWith("/name") ? json(400, { error: "invalid_request", fields: { name: "Nome muito longo." } }) : undefined));
+    api((call) =>
+      call.method === "PATCH" ? json(400, { error: "invalid_request", fields: { name: "Nome muito longo." } }) : undefined,
+    );
     await expect(save({ name: "Ana Souza" })).resolves.toMatchObject({
       fieldErrors: { name: "Nome muito longo." },
       values: { name: "Ana Souza", role: "CLIENT" },
     });
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it.each([
-    [404, "Usuário não encontrado."],
+    [400, "Não foi possível salvar. Confira os dados."],
     [401, "Sua sessão expirou. Entre novamente."],
+    [403, "Você não tem permissão para fazer isso."],
     [500, "Não foi possível salvar agora. Tente novamente."],
   ])("maps a %i answer to a message and keeps the typed name", async (status, message) => {
-    api((call) => (call.path.endsWith("/name") ? json(status, { error: "x" }) : undefined));
+    api((call) => (call.method === "PATCH" ? json(status, { error: "x" }) : undefined));
     await expect(save({ name: "Ana Souza" })).resolves.toMatchObject({
+      status: "error",
       formError: message,
       values: { name: "Ana Souza" },
     });
+    expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("updates the header name when administrators rename themselves", async () => {
-    api();
-    await save({ name: "Eu Mesmo" }, ME);
-    expect(setCookie).toHaveBeenCalledWith("ept_name", encodeURIComponent("Eu Mesmo"), expect.any(Object));
+  it("says the user no longer exists and offers a reload", async () => {
+    api((call) => (call.method === "PATCH" ? json(404, { error: "not_found" }) : undefined));
+    await expect(save({ name: "Ana Souza" })).resolves.toMatchObject({
+      formError: "Usuário não encontrado.",
+      notFound: true,
+    });
   });
 
-  it("leaves the header name alone when renaming someone else", async () => {
-    api();
-    await save({ name: "Ana Souza" });
-    expect(setCookie).not.toHaveBeenCalled();
+  it("reports an unreachable API without losing the typed name", async () => {
+    api((call) => {
+      if (call.method === "PATCH") throw new TypeError("fetch failed");
+      return undefined;
+    });
+    await expect(save({ name: "Ana Souza" })).resolves.toMatchObject({
+      formError: "Não foi possível salvar agora. Tente novamente.",
+      values: { name: "Ana Souza" },
+    });
   });
 });
 
-describe("changing the profile (US2)", () => {
+describe("changing the profile (US3)", () => {
   it("does nothing until the change is confirmed", async () => {
     api();
     await expect(save({ role: "ADMINISTRATOR" })).resolves.toMatchObject({ formError: "Confirme a mudança de perfil." });
     expect(writes()).toEqual([]);
   });
 
-  it("applies a confirmed change", async () => {
+  it("applies a confirmed change in one PATCH", async () => {
     api();
-    await expect(save({ role: "ADMINISTRATOR", confirmRole: "1" })).resolves.toEqual({
-      redirectedTo: "/admin/usuarios/7?aviso=salvo",
+    await expect(save({ role: "ADMINISTRATOR", confirmRole: "1" })).resolves.toMatchObject({
+      status: "saved",
+      user: { role: "ADMINISTRATOR" },
     });
-    expect(writes()).toEqual([{ method: "PUT", path: "/v1/users/7/role", body: { role: "ADMINISTRATOR" } }]);
+    expect(writes()).toEqual([{ method: "PATCH", path: "/v1/users/7", body: { role: "ADMINISTRATOR" } }]);
+  });
+
+  it("sends name and profile together in a single PATCH", async () => {
+    api();
+    await save({ name: "Ana Souza", role: "ADMINISTRATOR", confirmRole: "1" });
+    expect(writes()).toEqual([
+      { method: "PATCH", path: "/v1/users/7", body: { name: "Ana Souza", role: "ADMINISTRATOR" } },
+    ]);
+  });
+
+  it("reports one failure and nothing saved when the combined change is refused", async () => {
+    api((call) => (call.method === "PATCH" ? json(500, { error: "boom" }) : undefined));
+    const result = await save({ name: "Ana Souza", role: "ADMINISTRATOR", confirmRole: "1" });
+    expect(result).toMatchObject({ status: "error", formError: "Não foi possível salvar agora. Tente novamente." });
+    expect(result).not.toHaveProperty("saved");
+    expect(writes()).toHaveLength(1);
   });
 
   it("refuses an unknown role", async () => {
@@ -181,35 +239,18 @@ describe("changing the profile (US2)", () => {
     expect(writes()).toEqual([]);
   });
 
+  it("maps the API's role field error", async () => {
+    api((call) =>
+      call.method === "PATCH" ? json(400, { error: "invalid_request", fields: { role: "Perfil desconhecido." } }) : undefined,
+    );
+    await expect(save({ role: "ADMINISTRATOR", confirmRole: "1" })).resolves.toMatchObject({ formError: "Perfil inválido." });
+  });
+
   it("never changes the caller's own profile, even when confirmed", async () => {
     api();
     await expect(save({ role: "CLIENT", originalRole: "ADMINISTRATOR", confirmRole: "1" }, ME)).resolves.toMatchObject({
-      formError: "Você não pode alterar o seu próprio perfil.",
+      formError: "Você não tem permissão para fazer isso.",
     });
     expect(writes()).toEqual([]);
-  });
-
-  it("renames before changing the role", async () => {
-    api();
-    await save({ name: "Ana Souza", role: "ADMINISTRATOR", confirmRole: "1" });
-    expect(writes().map((call) => call.path)).toEqual(["/v1/users/7/name", "/v1/users/7/role"]);
-  });
-
-  it.each([
-    [404, "not_found", "Usuário não encontrado."],
-    [409, "own_role_change_forbidden", "Você não pode alterar o seu próprio perfil."],
-    [500, "boom", "Não foi possível salvar agora. Tente novamente."],
-  ])("says the name was saved when the role change fails (%i)", async (status, code, reason) => {
-    api((call) => (call.path.endsWith("/role") ? json(status, { error: code }) : undefined));
-    await expect(save({ name: "Ana Souza", role: "ADMINISTRATOR", confirmRole: "1" })).resolves.toMatchObject({
-      saved: { name: "Ana Souza" },
-      formError: `Nome salvo. O perfil não foi alterado: ${reason}`,
-    });
-  });
-
-  it("does not change the role when the rename fails", async () => {
-    api((call) => (call.path.endsWith("/name") ? json(500, { error: "boom" }) : undefined));
-    await save({ name: "Ana Souza", role: "ADMINISTRATOR", confirmRole: "1" });
-    expect(writes().map((call) => call.path)).toEqual(["/v1/users/7/name"]);
   });
 });

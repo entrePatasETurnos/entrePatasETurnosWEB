@@ -29,7 +29,7 @@ function baseUrl(): string {
 }
 
 type ApiOptions = {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Our own access token, sent as a bearer token. */
   token?: string;
   body?: unknown;
