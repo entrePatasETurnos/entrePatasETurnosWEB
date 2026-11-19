@@ -1,93 +1,55 @@
 import "server-only";
-import { ApiError, apiFetch } from "./api";
-import type { UserRole } from "./user-edit";
+import { apiFetch } from "./api";
+import type { UserRole, UserStatusFilter } from "./user-edit";
 
 /**
- * Administrators managing accounts (spec 010, contracts/api-users.md): list, read one, rename, change
- * the role. Renaming and the role change are the API's operations; nothing here decides who may do what.
+ * Administrators managing accounts (spec 011, contracts/api-users.md): list every account (API spec 036)
+ * and change one account's name and/or role in a single request (API spec 035). Nothing here decides who
+ * may do what: the API does.
  */
 
-export type { UserRole } from "./user-edit";
+export type { UserRole, UserStatusFilter } from "./user-edit";
+export { ROLE_LABELS, STATUS_LABELS, statusLabel } from "./user-edit";
 
-export type UserStatus = "ACTIVE" | "PENDING_EMAIL_VERIFICATION" | "DISABLED" | (string & {});
+type Link = { href: string; method?: string };
 
 export type UserSummary = {
   id: number;
   name: string;
   email: string;
   role: UserRole;
-  status: UserStatus;
-  createdAt: string;
-  _links?: Partial<Record<"self" | "rename" | "role", { href: string; method?: string }>>;
+  status: string;
+  _links?: Partial<Record<"self" | "edit" | "change-role" | "role-change", Link>>;
 };
 
 export type UserPage = {
   items: UserSummary[];
   page: { number: number; size: number; totalItems: number; totalPages: number };
+  _links?: Partial<Record<"self" | "first" | "prev" | "next" | "last", Link>>;
 };
-
-export const ROLE_LABELS: Record<UserRole, string> = {
-  CLIENT: "Cliente",
-  ADMINISTRATOR: "Administrador",
-};
-
-export const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: "Ativo",
-  PENDING_EMAIL_VERIFICATION: "Aguardando confirmação de e-mail",
-  DISABLED: "Desativado",
-};
-
-/** A status the site does not know yet is shown as the API wrote it, never hidden. */
-export function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status;
-}
 
 const BASE = "/v1/users";
 
-/**
- * Administrators only: accounts matching `q` (part of the name or e-mail), by name.
- *
- * Answers `null` when the API has no user list at all (a `404` on the collection): the site may be
- * deployed before the API that offers it, and the page then says "em breve" (research R2). Any other
- * failure is thrown.
- */
-export async function listUsers(
+/** Administrators only: one page of every account, in the API's alphabetical order. Failures are thrown. */
+export function listUsers(
   token: string,
-  opts: { q?: string; page?: number; size?: number } = {},
-): Promise<UserPage | null> {
+  opts: { role?: UserRole; status?: UserStatusFilter; page?: number; size?: number } = {},
+): Promise<UserPage> {
   const search = new URLSearchParams();
-  if (opts.q) search.set("q", opts.q);
+  if (opts.role) search.set("role", opts.role);
+  if (opts.status) search.set("status", opts.status);
   if (opts.page !== undefined) search.set("page", String(opts.page));
   if (opts.size !== undefined) search.set("size", String(opts.size));
   const query = search.toString();
-  try {
-    return await apiFetch<UserPage>(`${BASE}${query ? `?${query}` : ""}`, { token });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
-    throw error;
-  }
+  return apiFetch<UserPage>(`${BASE}${query ? `?${query}` : ""}`, { token });
 }
 
-/** One account, or `null` when there is no such account. */
-export async function getUser(token: string, id: number): Promise<UserSummary | null> {
-  try {
-    return await apiFetch<UserSummary>(`${BASE}/${id}`, { token });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
-    throw error;
-  }
+/** Changes the name, the role, or both, atomically: both applied or neither (API spec 035). */
+export function editUser(token: string, id: number, changes: { name?: string; role?: UserRole }) {
+  return apiFetch<UserSummary>(`${BASE}/${id}`, { method: "PATCH", token, body: changes });
 }
 
-export function renameUser(token: string, id: number, name: string) {
-  return apiFetch<UserSummary>(`${BASE}/${id}/name`, { method: "PUT", token, body: { name } });
-}
-
-/** The API's existing role change: applied and audited in the request. */
-export function changeUserRole(token: string, id: number, role: UserRole) {
-  return apiFetch<unknown>(`${BASE}/${id}/role`, { method: "PUT", token, body: { role } });
-}
-
-/** The caller's own account id, to recognise "you" (research R4). */
+/** The caller's own account id, to recognise "you". */
 export async function getMyId(token: string): Promise<number> {
   const me = await apiFetch<{ id: number }>(`${BASE}/me`, { token });
   return me.id;

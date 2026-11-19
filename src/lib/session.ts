@@ -59,15 +59,6 @@ export function writeSession(cookies: CookieWriter, session: SessionResponse) {
   });
 }
 
-/**
- * Rewrites only the displayed name, after an administrator renames their own account (spec 010).
- * No expiry is known here, so it lasts for the browser session; the next session renewal writes it
- * again with the refresh token's expiry.
- */
-export function writeUserName(cookies: CookieWriter, name: string) {
-  cookies.set(COOKIE.name, encodeURIComponent(name), base);
-}
-
 export function clearSession(cookies: { delete(name: string): unknown }) {
   for (const name of Object.values(COOKIE)) {
     cookies.delete(name);
